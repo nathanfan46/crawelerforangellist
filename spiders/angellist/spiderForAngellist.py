@@ -3,13 +3,15 @@
 from selenium import webdriver
 from selenium.common.exceptions import TimeoutException
 from selenium.common.exceptions import WebDriverException
+from selenium.common.exceptions import StaleElementReferenceException
 from selenium.webdriver.support.ui import WebDriverWait # available since 2.4.0
 from selenium.webdriver.support import expected_conditions as EC # available since 2.26.0
 from selenium.webdriver.common.keys import Keys
 from selenium.webdriver.common.by import By
 from selenium.webdriver.common.action_chains import ActionChains
 from selenium.webdriver.common.desired_capabilities import DesiredCapabilities
-from time import sleep
+#from time import sleep
+import time
 import datetime
 import os.path
 import io
@@ -43,6 +45,7 @@ class spiderForAngellist:
 	STARTUP_PRODUCT_FUNDINGSTAGE_CSS = "a.more_participants_link"
 	STARTUP_PRODUCT_PREINVEST_CSS = "a.view_all"
 	STARTUP_ACTIVITY_NOMORE_CSS = "a.g-feed_more.more.disabled"
+	STARTUP_ACTIVITY_PRESSITEM_CSS = "div.active.startups-show-helpers"
 	STARTUP_FOLLOWERS_MORE_CSS = "a.g-feed_more.more"
 
 
@@ -75,7 +78,7 @@ class spiderForAngellist:
 			os.remove(strSavedFileUrl)			
 
 		self.__lstSavedUrls = loadStrListInfo(strSavedFileUrl)
-		#self.__lstIgnoredUrl = loadStrListInfo(strIgnoredFileUrl)
+		#self.__lstIgnoredUrl = loadStrListInfo(strIgnoredFileUrl
 
 		# if self.setFilter(strCategory, strSubCategory) == False:
 		# 	return
@@ -122,20 +125,29 @@ class spiderForAngellist:
 			if(strCategory == "Location"):
 				#save Overview page
 				self.autoClickMoreToExtendLst(spiderForAngellist.STARTUP_PRODUCT_MORE_CSS)
-				print "1"
-				self.autoClickMoreToExtendLst(spiderForAngellist.STARTUP_PRODUCT_FUNDINGSTAGE_CSS)
-				print "2"
-				self.autoClickMoreToExtendLst(spiderForAngellist.STARTUP_PRODUCT_PREINVEST_CSS)
-				print "3"
+				self.autoClickMoreToExtendLst(spiderForAngellist.STARTUP_PRODUCT_FUNDINGSTAGE_CSS, '', True)
+				self.autoClickMoreToExtendLst(spiderForAngellist.STARTUP_PRODUCT_PREINVEST_CSS, '', True)
 				self.saveCurrentPage(spiderForAngellist.getOverviewLocalFilePath(strUrl, strDate, strCategory, strSubCategory))
 				#save Activiey#Press page
 				elementActivityTab = self.__driver.find_element_by_css_selector("a.tab.activity")
 				strActivityUrl = elementActivityTab.get_attribute("href")
 				self.__driver.get(strActivityUrl)
+
+				wait = WebDriverWait(self.__driver, 10)
+				wait.until(self.ajax_complete, "Timeout waiting for page to load")
+
 				elementActivityPressTab = self.__driver.find_element_by_css_selector("ul.g-sub_nav > li[data-tab='press'] > a")
-				strActivityPressUrl = elementActivityPressTab.get_attribute("href")
-				self.__driver.get(strActivityPressUrl)
-				self.scrollToExtendLst(spiderForAngellist.STARTUP_ACTIVITY_NOMORE_CSS)
+				#strActivityPressUrl = elementActivityPressTab.get_attribute("href")
+				#self.__driver.get(strActivityPressUrl)
+				strCurrentUrl = self.__driver.current_url
+				elementActivityPressTab.click()
+				while (strCurrentUrl == self.__driver.current_url):
+					time.sleep(5)
+
+				wait = WebDriverWait(self.__driver, 10)
+				wait.until(self.ajax_complete, "Timeout waiting for page to load")
+				#self.scrollToExtendLst(spiderForAngellist.STARTUP_ACTIVITY_NOMORE_CSS) 
+				self.scrollForCreatingAllItem(spiderForAngellist.STARTUP_ACTIVITY_PRESSITEM_CSS)
 				self.saveCurrentPage(spiderForAngellist.getActivityPressLocalFilePath(strUrl, strDate, strCategory, strSubCategory))
 				#save Followers page
 				elementFollowersTab = self.__driver.find_element_by_css_selector("a.tab.followers")
@@ -170,23 +182,56 @@ class spiderForAngellist:
 			print("[spiderForAngellist] Already Login!")
 
 	def ajax_complete(self, driver):
-		print("[spiderForAngellist] Waiting for AJAX complete")
+		print("[spiderForAngellist] waiting for AJAX complete")
 		try:
+			time.sleep(0.1)
 			return 0 == driver.execute_script("return jQuery.active")
 		except WebDriverException:
 			pass
 
-	def autoClickMoreToExtendLst(self, strMoreCss):
+	def wait_for(self, condition_function, link):
+		start_time = time.time()
+		while time.time() < start_time + 3:
+			if condition_function(link):
+				return True
+			else:
+				time.sleep(0.1)
+		raise Exception(
+			'Timeout waiting for {}'.format(condition_function.__name__)
+		)
+
+	def link_has_gone_stale(self, link):
+		print("[spiderForAngellist] waiting for link stale")
+		try:
+			# poll the link with an arbitrary call
+			link.get_attribute("href")
+			return False
+		except StaleElementReferenceException:
+			return True
+
+	def autoClickMoreToExtendLst(self, strMoreCss, strItemCss = '', waitForStale = False):
 		wait = WebDriverWait(self.__driver, 10)
 		# element = wait.until(EC.element_to_be_clickable((By.CSS_SELECTOR, strMoreCss)))
 		wait.until(self.ajax_complete, "Timeout waiting for page to load")
 		lstElementMore = self.__driver.find_elements_by_css_selector(strMoreCss)
-		print "wait CSS: " + strMoreCss + " has count: " + str(len(lstElementMore))
+		lstElementNoMore = self.__driver.find_elements_by_css_selector(strMoreCss + ".disabled")
+		#print "wait CSS: " + strMoreCss + " has count: " + str(len(lstElementMore))
 		intMoreCount = 0
 		#while(len(lstElementMore) == 1):
 		while(len(lstElementMore) >= 1):
 			elementMore = lstElementMore[0]
 			intMoreCount += 1
+
+			intItemCount = 0
+
+			if(strItemCss != ''):
+				intItemCount = len(self.__driver.find_elements_by_css_selector(strItemCss))
+
+
+			if(len(lstElementMore) == 1 and len(lstElementNoMore) == 1 and lstElementMore[0] == lstElementNoMore[0]):
+				print "The more element is disabled"
+				break
+
 			if(elementMore.is_displayed() and elementMore.is_enabled()): #Avoid click on hidden element
 				self.__driver.execute_script("arguments[0].scrollIntoView();", elementMore)
 				self.__driver.execute_script("window.scrollBy(0,-250)")
@@ -204,6 +249,16 @@ class spiderForAngellist:
 
 			wait.until(self.ajax_complete, "Timeout waiting for page to load")
 
+			if(waitForStale):
+				self.wait_for(self.link_has_gone_stale, elementMore)
+
+			if(strItemCss != ''):
+				intLastItemCount = intItemCount
+				intItemCount = len(self.__driver.find_elements_by_css_selector(strItemCss))
+				if(intItemCount == intLastItemCount):
+					print "No more item generated, the itemCount is : " + str(intItemCount)
+					break
+
 			#while lstElementMore == self.__driver.find_elements_by_css_selector(strMoreCss):
 				# 按下 div.more_field 執行的 ajax 完成後會產生新的, 因此以判斷是不是同一個 element, 來決定是否繼續
 				#print "wait..."
@@ -214,8 +269,8 @@ class spiderForAngellist:
 			# self.__driver.execute_script("window.scrollTo(0, document.body.scrollHeight);")
 
 			lstElementMore = self.__driver.find_elements_by_css_selector(strMoreCss)
-
-			print "wait CSS: " + strMoreCss + " has count: " + str(len(lstElementMore))
+			lstElementNoMore = self.__driver.find_elements_by_css_selector(strMoreCss + ".disabled")
+			#print "wait CSS: " + strMoreCss + " has count: " + str(len(lstElementMore))
 
 	def scrollToExtendLst(self, strNoMoreCss):
 		wait = WebDriverWait(self.__driver, 10)
@@ -228,15 +283,30 @@ class spiderForAngellist:
 			lstElementNoMore = self.__driver.find_elements_by_css_selector(strNoMoreCss)
 			print "wait Nomore CSS: " + strNoMoreCss + " has count: " + str(len(lstElementNoMore))
 
+	def scrollForCreatingAllItem(self, strItemCss): #適用於網頁往下滑即可產生列表物件的頁面，輸入生成物件的css selector字串
+		fCurTime = 0
+		intLastItemCount = 0
+		while True:
+			intCurItemCount = len(self.__driver.find_elements_by_css_selector(strItemCss))
+			if fCurTime > self.INT_SCROLL_TIMEOUT:
+				break
+			elif intCurItemCount > intLastItemCount:
+				intLastItemCount = intCurItemCount
+				self.__driver.execute_script("window.scrollTo(0, document.body.scrollHeight);")
+				fCurTime = 0
+			else:
+				fCurTime = fCurTime + 0.5
+				time.sleep(0.5)
+
 	def getLstOfAllObjects(self, strCategory):
 		wait = WebDriverWait(self.__driver, 10)
 		wait.until(self.ajax_complete, "Timeout waiting for page to load")
 		lstObjElement = []
 		if(strCategory == "People"):
-			self.autoClickMoreToExtendLst("div.more_field")
+			self.autoClickMoreToExtendLst("div.more_field", "div.people-list[data-_tn='people/list/row']")
 			return self.__driver.find_elements(By.CSS_SELECTOR, "div.people-list[data-_tn='people/list/row']")
 		elif(strCategory == "Location"):
-			#self.autoClickMoreToExtendLst("div.more.hidden")
+			self.autoClickMoreToExtendLst("div.more.hidden", "div.item.column > div.g-lockup > div.photo")
 			return self.__driver.find_elements(By.CSS_SELECTOR, "div.item.column > div.g-lockup > div.photo")
 		else:
 			return lstObjElement;
@@ -263,9 +333,9 @@ class spiderForAngellist:
 	def strLocalPagePath():
 		if(os.name == "nt"):
 			return "C:/Users/Nathan/Documents/SavedPage/"
-			#return "C:/Users/Administrator.WIN-14526221294/Desktop/SavedPage/"
+			# return "C:/Users/Administrator/Documents/SavedPage/"
 		elif(os.name == "posix"):
-			return "/Users/yuwei/Desktop/LocalPage/kickstarter/"
+			return "/Users/yuwei/Desktop/LocalPage/angellist/"
 
 	@staticmethod				
 	def strSavedUrlFilePath(strDate, strCategory, strSubCategory):							#本次已抓取url列表
@@ -288,17 +358,17 @@ class spiderForAngellist:
 
 	@staticmethod
 	def getOverviewLocalFilePath(strUrl, strDate, strCategory, strSubCategory): 	#Startup
-		strObjectID = getFileNameInUrl(spiderForAngellist.getPureUrl(strUrl))
+		strObjectID = getFileNameInUrl(strUrl)
 		return spiderForAngellist.strLocalPagePath() + strDate + "/" + strCategory + "/" + strSubCategory + "/" + strObjectID + "_overview" + spiderForAngellist.LOCAL_PAGE_EXTENSION
 
 	@staticmethod
 	def getActivityPressLocalFilePath(strUrl, strDate, strCategory, strSubCategory): 	#Startup
-		strObjectID = getFileNameInUrl(spiderForAngellist.getPureUrl(strUrl))
+		strObjectID = getFileNameInUrl(strUrl)
 		return spiderForAngellist.strLocalPagePath() + strDate + "/" + strCategory + "/" + strSubCategory + "/" + strObjectID + "_activitypress" + spiderForAngellist.LOCAL_PAGE_EXTENSION
 
 	@staticmethod
 	def getFollowersLocalFilePath(strUrl, strDate, strCategory, strSubCategory): 	#Startup
-		strObjectID = getFileNameInUrl(spiderForAngellist.getPureUrl(strUrl))
+		strObjectID = getFileNameInUrl(strUrl)
 		return spiderForAngellist.strLocalPagePath() + strDate + "/" + strCategory + "/" + strSubCategory + "/" + strObjectID + "_followers" + spiderForAngellist.LOCAL_PAGE_EXTENSION		
 	
 	@staticmethod
@@ -325,11 +395,11 @@ class spiderForAngellist:
 	@staticmethod
 	def saveAllObjectsOfCategory(strDate, strCategory, lstStrSubCategory = [], isClearSavedUrls = False):
 		spider = spiderForAngellist()
-		driver = webdriver.Firefox()
+		# driver = webdriver.Firefox()
 		
-		# chromedriver = "C:/Python27/Scripts/chromedriver.exe"
-		# os.environ["webdriver.chrome.driver"] = chromedriver
-		# driver = webdriver.Chrome(chromedriver)
+		chromedriver = "C:/Python27/Scripts/chromedriver.exe"
+		os.environ["webdriver.chrome.driver"] = chromedriver
+		driver = webdriver.Chrome(chromedriver)
 
 		# firefox_capabilities = DesiredCapabilities.FIREFOX
 		# firefox_capabilities['marionette'] = True
@@ -347,8 +417,10 @@ class spiderForAngellist:
 
 
 def main():
-	#spiderForAngellist.saveAllObjectsOfCategory("2016-02-24", "People", ["SyndicateLeads", "Investors"])
-	spiderForAngellist.saveAllObjectsOfCategory("2016-02-24", "Location", ["Taiwan"])
+	#spiderForAngellist.saveAllObjectsOfCategory("2016-02-25", "Location", ["Taiwan"])
+	#spiderForAngellist.saveAllObjectsOfCategory("2016-02-25", "People", ["SyndicateLeads", "Investors"])
+	spiderForAngellist.saveAllObjectsOfCategory("2016-02-25", "People", ["Investors"])
+	
 
 if __name__ == '__main__':
 	main()

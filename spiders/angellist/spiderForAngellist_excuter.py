@@ -6,10 +6,10 @@ sys.path.append(os.path.join(os.path.dirname(__file__), '..', 'utility'))
 
 import utility
 import mailHelper
-from spiderForAngelist import *
+from spiderForAngellist import *
 
 if __name__ == '__main__':
 	config = loadObjFromJsonFile(os.path.dirname(os.path.abspath(__file__)) + "/spiderForAngellist_config.json")
 	strCategory = config["strCategory"]
-	spiderForAngelist.saveAllProjectsOfCategory("2016-02-16", strCategory)
-	mailHelper.send("Projects Of [" + strCategory + "] Are Saved!", config["strMachine"], "me", "", config["lstStrMail"])
+	spiderForAngellist.saveAllObjectsOfCategory("2016-02-26", strCategory)
+	mailHelper.send("All Objects Of [" + strCategory + "] Are Saved!", config["strMachine"], "me", "", config["lstStrMail"])
