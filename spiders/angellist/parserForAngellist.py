@@ -8,11 +8,17 @@ import io
 import json
 import platform
 import sys
+import locale
+# import geonamescache
+# from geonamescache.mappers import country
+
 
 sys.path.append(os.path.join(os.path.dirname(__file__), '..', 'utility'))
 
 from utility import *
 from mailHelper import *
+# from geonames import *
+import geonames
 
 from spiderForAngellist import spiderForAngellist
 
@@ -23,6 +29,7 @@ class parserForAngellist:
 	LOCAL_PAGE_INFO_EXTENSION = ".txt"
 	PARSE_ERROR_URLS_FILENAME = "errorList" 
 	PARSE_SAVED_URLS_FILENAME = "parsedList"
+	PARSE_SAVED_GEONAME_FILENAME = "geonamescache"
 
 	def __init__(self):
 		self.__lstSavedUrls = []
@@ -37,8 +44,14 @@ class parserForAngellist:
 		self.__lstStartupResult = {}
 		self.__lstStartupSeriesResult = {}
 		self.__lstStartupActivityPressResult = {}
+		self.__geonamesCache = {}
 
 	def parseObjectsToLocalFile(self, strDate, strCategory, strSubCategory, intCount = 0, isClearParsedUrls = False):
+		strSavedDirectory = spiderForAngellist.strSavedDirectory(strDate, strCategory, strSubCategory)
+		# Skip unsaved directory
+		if(not os.path.isdir(strSavedDirectory)):
+			return
+
 		strParsedFileUrl = parserForAngellist.strParsedUrlFilePath(strDate, strCategory, strSubCategory)
 
 		if(isClearParsedUrls == True and os.path.isfile(strParsedFileUrl)):
@@ -50,6 +63,10 @@ class parserForAngellist:
 		self.__strDate = strDate
 		self.__strCategory = strCategory
 		self.__strSubCategory = strSubCategory
+
+		strSavedGeonameFilePath = parserForAngellist.strSavedGeonameFilePath(strDate, strCategory, strSubCategory)
+		if(os.path.isfile(strSavedGeonameFilePath)):
+			self.__geonamesCache = loadObjFromJsonFile(strSavedGeonameFilePath)
 
 		for i in range(0, len(self.__lstSavedUrls), 1):
 			if(self.__lstSavedUrls[i] not in self.__lstParsedUrls):
@@ -82,6 +99,8 @@ class parserForAngellist:
 
 			strStartupActivityPressJsonFilePath = parserForAngellist.getStartupActivityPressJsonFilePath(self.__strDate, self.__strCategory, self.__strSubCategory)
 			saveObjToJson(self.__lstStartupActivityPressResult, strStartupActivityPressJsonFilePath)
+
+		saveObjToJson(self.__geonamesCache, strSavedGeonameFilePath)
 
 	def parseSavedPagesToJson(self, strCategory, strUrl):
 		print("[parserForAngellist] Parsing " + strUrl)
@@ -127,6 +146,7 @@ class parserForAngellist:
 						strAllLocation = divInfo.css("::attr(oldtitle)").extract_first().strip()
 					else:
 						strAllLocation = divInfo.css("::text").extract_first().strip()
+
 					lstStrLocation = strAllLocation.split(',')
 					lstStrLocation = map(unicode.strip, lstStrLocation)
 					strLocation = lstStrLocation[0]
@@ -143,18 +163,32 @@ class parserForAngellist:
 			dicInvestorResult['lstStrRole'] = lstStrRole
 
 			dicInvestorResult['strLocation'] = strLocation
-			dicInvestorResult['strCity'] = ''
-			dicInvestorResult['strCountry'] = ''
-			dicInvestorResult['strContinent'] = ''
+			dicLocation = self.parseLocation(strLocation)
 
-			strFollower = root.css("a.followers_count.follow_link::text").extract_first().strip()
-			strFollower = strFollower.split(' ')[0].replace(",", "")
-			intFollower = int(strFollower)
+			# strGeonameId = geonames.search(q=strLocation)[0]['geonameId']
+			# dicGeoname = geonames.get(strGeonameId)
+			# bbox = dicGeoname['bbox']
+			# strCountry = dicGeoname['countryCode']
+			# strContinent = dicGeoname['continentCode']
+			# dicCity = geonames.findCity(north=bbox['north'], south=bbox['south'], east=bbox['east'], west=bbox['west'])[0]
+			# strCity = dicCity['name']
+
+			dicInvestorResult['strCity'] = dicLocation['strCity']
+			dicInvestorResult['strCountry'] = dicLocation['strCountry']
+			dicInvestorResult['strContinent'] = dicLocation['strContinent']
+
+			intFollower = 0
+			if(root.css("a.followers_count.follow_link")):
+				strFollower = root.css("a.followers_count.follow_link::text").extract_first().strip()
+				strFollower = strFollower.split(' ')[0].replace(",", "")
+				intFollower = int(strFollower)
 			dicInvestorResult['intFollower'] = intFollower
 
-			strFollowing = root.css("a.following_count.follow_link::text").extract_first().strip()
-			strFollowing = strFollowing.split(' ')[0].replace(",", "")
-			intFollowing = int(strFollowing)
+			intFollowing = 0
+			if(root.css("a.following_count.follow_link")):
+				strFollowing = root.css("a.following_count.follow_link::text").extract_first().strip()
+				strFollowing = strFollowing.split(' ')[0].replace(",", "")
+				intFollowing = int(strFollowing)
 			dicInvestorResult['intFollowing'] = intFollowing
 
 			lstStrMarket = []
@@ -264,7 +298,7 @@ class parserForAngellist:
 					dicSyndicateResult['intBackerCount'] = intBackerCount
 
 
-			strBackedBy = ''
+			intBackedBy = 0
 			intDealsPerYear = 0
 
 			divSyndicateSummaryItems = root.css('ul.syndicate_summary > li')
@@ -272,7 +306,27 @@ class parserForAngellist:
 				strLabel = divSyndicateSummaryItem.css('div.syndicate_summary_label::text').extract_first().strip()
 				if "Backed By" in strLabel:
 					strBackedBy = divSyndicateSummaryItem.css('div.syndicate_summary_value::text').extract_first().strip()
-					dicSyndicateResult['strBackedBy'] = strBackedBy
+					strCurrency = strBackedBy[:1]
+					strBackedBy = strBackedBy[1:]
+
+					if(strCurrency == u'$'):
+						strCurrency = 'USD'
+					elif (strCurrency == u'€'):
+						strCurrency = 'EUR'
+
+					intBase = 1
+					if(strBackedBy[-1:] == u'K'):
+						intBase = 1000
+						strBackedBy = strBackedBy[:-1]
+					elif(strBackedBy[-1:] == u'M'):
+						intBase = 1000000
+						strBackedBy = strBackedBy[:-1]
+
+					intBackedBy = int(locale.atof(strBackedBy.replace(",", "")) * intBase)
+
+					dicSyndicateResult['strCurrency'] = strCurrency
+					dicSyndicateResult['intBackedBy'] = intBackedBy
+
 				elif "Expected Deals/Year" in strLabel:
 					strDealsPerYear = divSyndicateSummaryItem.css('div.syndicate_summary_value::text').extract_first().strip()
 					intDealsPerYear = int(strDealsPerYear)
@@ -305,12 +359,12 @@ class parserForAngellist:
 			strCompany = root.css('div.text > div.name_holder > h1.name::text').extract_first().strip()
 			dicStartupResult['strCompany'] = strCompany
 
-			# Some company didn't have intros
-			strIntro = root.css('div.main.standard > div.text > h2.high_concept').css('::text').extract_first()
+			# Some company didn't have intros, and h2 has some parsing error
+			strIntro = root.css('div.main.standard > div.text').css('p::text').extract_first()
 			dicStartupResult['strIntro'] = strIntro
 
-			strProduct = root.css('div.product_desc > div.show.windows > div.content::text').extract_first()
-			dicStartupResult['strProduct'] = strProduct
+			lstStrProduct = root.css('div.product_desc > div.show.windows > div.content::text').extract()
+			dicStartupResult['lstStrProduct'] = lstStrProduct
 
 			lstStrFounders = []
 			lstStrFoundersDesc = []
@@ -357,10 +411,11 @@ class parserForAngellist:
 			dicStartupResult['strLocation'] = strLocation
 			dicStartupResult['lstIndustry'] = lstIndustry
 
-			# TODO: parsing location to get followint infos
-			dicStartupResult['strCity'] = ''
-			dicStartupResult['strCountry'] = ''
-			dicStartupResult['strContinent'] = ''
+			dicLocation = self.parseLocation(strLocation)
+
+			dicStartupResult['strCity'] = dicLocation['strCity']
+			dicStartupResult['strCountry'] = dicLocation['strCountry']
+			dicStartupResult['strContinent'] = dicLocation['strContinent']
 
 			lstStrFollowers = self.parseStartupFollowersToJson(strUrl)
 			dicStartupResult['lstStrFollowers'] = lstStrFollowers
@@ -396,11 +451,37 @@ class parserForAngellist:
 						strSeriesType = divStartupSeriesType.css('::text').extract_first().strip()
 					dicStartupSeriesResult['strSeriesType'] = strSeriesType
 
-					strSeriesMoney = 'Unknown'
-					divStartupSeriesMoney = divStartupSeries.css('div.details.inner_section > div.raised > a')
+					strSeriesMoney = u'Unknown'
+					intSeriesMoney = 0
+					divStartupSeriesMoney = divStartupSeries.css('div.details.inner_section > div.raised')
 					if(divStartupSeriesMoney):
-						strSeriesMoney = divStartupSeriesMoney.css('::text').extract_first()
-					dicStartupSeriesResult['strSeriesMoney'] = strSeriesMoney
+						lstStrSeriesMoney = divStartupSeriesMoney.css('::text').extract()
+						strSeriesMoney = "".join(lstStrSeriesMoney).strip()
+
+					if(strSeriesMoney != u'Unknown'):
+						strCurrency = strSeriesMoney[:1]
+						strSeriesMoney = strSeriesMoney[1:]
+
+						if(strCurrency == u'$'):
+							strCurrency = 'USD'
+						elif (strCurrency == u'€'):
+							strCurrency = 'EUR'
+
+						intBase = 1
+						if(strSeriesMoney[-1:] == u'K'):
+							intBase = 1000
+							strSeriesMoney = strSeriesMoney[:-1]
+						elif(strSeriesMoney[-1:] == u'M'):
+							intBase = 1000000
+							strSeriesMoney = strSeriesMoney[:-1]
+
+						intSeriesMoney = int(locale.atof(strSeriesMoney.replace(",", "")) * intBase)
+
+					if(intSeriesMoney == 0):
+						dicStartupSeriesResult['intSeriesMoney'] = strSeriesMoney
+					else:
+						dicStartupSeriesResult['intSeriesMoney'] = intSeriesMoney
+						dicStartupSeriesResult['strCurrency'] = strCurrency
 
 					strSeriesDate = ''
 					divStartupSeriesDate = divStartupSeries.css('div.details.inner_section > div.header > div.date_display')
@@ -462,6 +543,58 @@ class parserForAngellist:
 		self.__lstStartupActivityPressResult[strUrl] = lstActivityPress
 		# print("[parserForAngellist] Startup Activity Press" + str(lstActivityPress))
 
+	def parseLocation(self, strLocation):
+		print('[parserForAngellist] Parsing location : ' + strLocation)
+
+		if(strLocation.strip() == ''):
+			dicEmptyGeoname = {}
+			dicEmptyGeoname['strCity'] = ''
+			dicEmptyGeoname['strCountry'] = ''
+			dicEmptyGeoname['strContinent'] = ''
+			return dicEmptyGeoname
+
+		if(self.__geonamesCache.get(strLocation) == None):
+			dicGeonameCache = {} 
+			dicSearchResult = geonames.search(q=strLocation, maxRows=10, featureClass='P') #countryBias='US'
+			lstStrLocation = strLocation.split()
+			while len(dicSearchResult) == 0 and len(lstStrLocation) > 1:
+				del lstStrLocation[-1]
+				strSubLocation = ' '.join(lstStrLocation)
+				print('[parserForAngellist] Parsing location : ' + strSubLocation)
+				dicSearchResult = geonames.search(q=strSubLocation, maxRows=10, featureClass='P') #countryBias='US'
+				
+			if(len(dicSearchResult) == 0):
+				dicNotFoundGeoname = {}
+				dicNotFoundGeoname['strCity'] = ''
+				dicNotFoundGeoname['strCountry'] = ''
+				dicNotFoundGeoname['strContinent'] = ''
+				return dicNotFoundGeoname
+
+			strGeonameId = dicSearchResult[0]['geonameId']
+			# import pdb; pdb.set_trace()
+			dicGeoname = geonames.get(strGeonameId)
+			strFclName = dicGeoname['fclName']
+			strCountry = dicGeoname['countryCode']
+			strContinent = dicGeoname['continentCode']
+			# import pdb; pdb.set_trace()
+			strCity = ''
+			if 'city' in strFclName:
+				strCity = dicGeoname['name']
+			elif dicGeoname.get('bbox') != None:
+				bbox = dicGeoname['bbox']
+				dicCity = geonames.findCity(north=bbox['north'], south=bbox['south'], east=bbox['east'], west=bbox['west'])[0]
+				strCity = dicCity['name']
+			else:
+				strCity = strLocation
+				import pdb; pdb.set_trace()
+			
+			dicGeonameCache['strCity'] = strCity
+			dicGeonameCache['strCountry'] = strCountry
+			dicGeonameCache['strContinent'] = strContinent
+			self.__geonamesCache[strLocation] = dicGeonameCache
+
+		return self.__geonamesCache[strLocation]
+
 	@staticmethod
 	def strParsedResultPath():
 		if(os.name == "nt"):
@@ -469,6 +602,10 @@ class parserForAngellist:
 			# return "C:/Users/Administrator/Documents/ParsedResult/"
 		elif(os.name == "posix"):
 			return "/Users/yuwei/Desktop/ParseResult/angellist/"
+
+	@staticmethod				
+	def strSavedGeonameFilePath(strDate, strCategory, strSubCategory):							#geonames cache
+		return parserForAngellist.strParsedResultPath() + "/" + strDate + "/" + strCategory + "/" + strSubCategory + "/" + parserForAngellist.PARSE_SAVED_GEONAME_FILENAME + parserForAngellist.LOCAL_JSON_EXTENSION
 
 	@staticmethod				
 	def strParsedUrlFilePath(strDate, strCategory, strSubCategory):							#本次已抓取url列表

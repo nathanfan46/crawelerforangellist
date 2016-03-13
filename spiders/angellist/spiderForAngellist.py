@@ -3,6 +3,7 @@
 from selenium import webdriver
 from selenium.common.exceptions import TimeoutException
 from selenium.common.exceptions import WebDriverException
+from selenium.common.exceptions import NoSuchElementException
 from selenium.common.exceptions import StaleElementReferenceException
 from selenium.webdriver.support.ui import WebDriverWait # available since 2.4.0
 from selenium.webdriver.support import expected_conditions as EC # available since 2.26.0
@@ -41,6 +42,9 @@ class spiderForAngellist:
 
 	LOCATION_TAIWAN_URL = "https://angel.co/taiwan"
 
+	MARKET_MORE_CSS = "a.items.section.more_button"
+	MARKET_SUBNODE_CSS = "div#tags_list.section > div.items > div.clickable_area"
+
 	STARTUP_PRODUCT_MORE_CSS = "a.hidden_more"
 	STARTUP_PRODUCT_FUNDINGSTAGE_CSS = "a.more_participants_link"
 	STARTUP_PRODUCT_PREINVEST_CSS = "a.view_all"
@@ -50,6 +54,8 @@ class spiderForAngellist:
 
 
 	LOCAL_PAGR_CATEGORY_MAPPING_FILENAME = "categroyMapping.json"
+	LOCAL_PAGR_LOCATION_MAPPING_FILENAME = "locationMapping.json"
+	LOCAL_PAGR_MARKET_MAPPING_FILENAME = "marketMapping.json"
 	LOCAL_PAGE_PROJECT_LIST_FILENAME = "ProjectListPage"
 	LOCAL_PAGE_SAVED_URLS_FILENAME = "savedUrls" 		#每次存完的網站會把url存下
 	LOCAL_PAGE_ERROR_URLS_FILENAME = "errorList" 		#抓取發生錯誤的網頁
@@ -63,10 +69,142 @@ class spiderForAngellist:
 	def __init__(self):
 		self.__driver = None
 		self.__lstSavedUrls = []
+		self.__dicMarketUrls = {}
+		self.__dicLocationUrls = {}
 		#self.__lstIgnoredUrl = []
+
+	def loadCategoryFromPage(self, driver):
+		self.__driver = driver
+		dicMapping = {}
+
+		# Get Market mapping
+		strMarketFilePath = spiderForAngellist.getMarketMappingFilePath()
+		strLocationFilePath = spiderForAngellist.getLocationMappingFilePath()
+		listMarket = []
+		listLocation = []
+
+		if(os.path.isfile(strMarketFilePath)):
+			self.__dicMarketUrls = loadObjFromJsonFile(strMarketFilePath)
+			for key in self.__dicMarketUrls: 
+				if(key.strip() != ''):
+					listMarket.append(key)
+		else:
+			self.__driver.get("https://angel.co/markets")
+
+			self.autoClickMoreToExtendLst(spiderForAngellist.MARKET_MORE_CSS, "div#tags_list.section > div.items > div.item-tag")
+			lstElementRight = self.__driver.find_elements_by_css_selector('div.item-tag > div.arrow_modifier.arrow_list_right')
+			skippedIndex = 0
+			lstclickedId = []
+
+			while(len(lstElementRight) > skippedIndex):
+				# Skip ALl market
+				print('Total count of elementRight: ' + str(len(lstElementRight)))
+
+				elementRight = lstElementRight[skippedIndex]
+
+
+				if(elementRight.get_attribute("data-tag_id") in lstclickedId or not elementRight.is_displayed()):
+					skippedIndex += 1
+				else:
+					elementClickable = elementRight.find_element_by_xpath('..').find_element_by_xpath('..').find_element_by_css_selector('div.clickable_area')
+					self.__driver.execute_script("arguments[0].scrollIntoView();", elementClickable)
+					self.__driver.execute_script("window.scrollBy(0,-250)")
+					try:
+						elementClickable.click()
+					except Exception, e:
+						import pdb; pdb.set_trace()
+					lstclickedId.append(elementRight.get_attribute("data-tag_id"))
+
+				wait = WebDriverWait(self.__driver, 10)
+				wait.until(self.ajax_complete, "Timeout waiting for page to load")
+				
+				lstElementRight = self.__driver.find_elements_by_css_selector('div.item-tag > div.arrow_modifier.arrow_list_right')
+
+			lstElement = self.__driver.find_elements_by_css_selector('div#tags_list.section > div.items > div.item-tag > a')
+
+			for element in lstElement:
+				if(element.text not in listMarket):
+					self.__dicMarketUrls[element.text] = element.get_attribute('href')
+					if(element.text.strip() != ''):
+						listMarket.append(element.text)
+
+			saveObjToJson(self.__dicMarketUrls, strMarketFilePath)
+
+		# Get Location mapping
+		if(os.path.isfile(strLocationFilePath)):
+			self.__dicLocationUrls = loadObjFromJsonFile(strLocationFilePath)
+			for key in self.__dicLocationUrls:
+				if(key.strip() != ''): 
+					listLocation.append(key)
+		else:
+			self.__driver.get("https://angel.co/locations")
+
+			self.autoClickMoreToExtendLst(spiderForAngellist.MARKET_MORE_CSS, "div#tags_list.section > div.items > div.item-tag")
+			lstElementRight = self.__driver.find_elements_by_css_selector('div.item-tag > div.arrow_modifier.arrow_list_right')
+			skippedIndex = 0
+			lstclickedId = []
+
+			while(len(lstElementRight) > skippedIndex):
+				# Skip ALl market
+				print('Total count of elementRight: ' + str(len(lstElementRight)))
+
+				elementRight = lstElementRight[skippedIndex]
+
+
+				if(elementRight.get_attribute("data-tag_id") in lstclickedId or not elementRight.is_displayed()):
+					skippedIndex += 1
+				else:
+					elementClickable = elementRight.find_element_by_xpath('..').find_element_by_xpath('..').find_element_by_css_selector('div.clickable_area')
+					self.__driver.execute_script("arguments[0].scrollIntoView();", elementClickable)
+					self.__driver.execute_script("window.scrollBy(0,-250)")
+					try:
+						elementClickable.click()
+					except Exception, e:
+						import pdb; pdb.set_trace()
+
+					lstclickedId.append(elementRight.get_attribute("data-tag_id"))
+
+				wait = WebDriverWait(self.__driver, 10)
+				wait.until(self.ajax_complete, "Timeout waiting for page to load")
+				
+				lstElementRight = self.__driver.find_elements_by_css_selector('div.item-tag > div.arrow_modifier.arrow_list_right')
+
+			lstElement = self.__driver.find_elements_by_css_selector('div#tags_list.section > div.items > div.item-tag > a')
+
+			
+			for element in lstElement:
+				if(element.text not in listLocation):
+					self.__dicLocationUrls[element.text] = element.get_attribute('href')
+					if(element.text.strip() != ''):
+						listLocation.append(element.text)
+
+
+			strLocationFilePath = spiderForAngellist.getLocationMappingFilePath()
+			saveObjToJson(self.__dicLocationUrls, strLocationFilePath)
+
+
+		dicMapping['Location'] = listLocation	
+		dicMapping['Market'] = listMarket
+		dicMapping['People'] = ["SyndicateLeads", "Investors"]
+
+		strFilePath = spiderForAngellist.getCategoryMappingFilePath()
+		saveObjToJson(dicMapping, strFilePath)
+
+		return dicMapping;
+
 
 	def saveObjectsToLocalFile(self, driver, strDate, strCategory, strSubCategory, intCount = 0, isClearSavedUrls = False):
 		self.__driver = driver
+
+		if(strCategory == "Market"):
+			strMarketFilePath = spiderForAngellist.getMarketMappingFilePath()
+			if(os.path.isfile(strMarketFilePath)):
+				self.__dicMarketUrls = loadObjFromJsonFile(strMarketFilePath)
+		elif(strCategory == "Location"):
+			strLocationFilePath = spiderForAngellist.getLocationMappingFilePath()
+			if(os.path.isfile(strLocationFilePath)):
+				self.__dicLocationUrls = loadObjFromJsonFile(strLocationFilePath)
+
 		strUrl = self.getBaseStrUrl(strCategory, strSubCategory)
 		self.__driver.get(strUrl)
 
@@ -122,15 +260,27 @@ class spiderForAngellist:
 					self.autoClickMoreToExtendLst(spiderForAngellist.SYNDICATE_INVESTMENTS_MORE_CSS)
 					self.saveCurrentPage(spiderForAngellist.getSyndicateLocalFilePath(strUrl, strDate, strCategory, strSubCategory))
 
-			if(strCategory == "Location"):
+			if(strCategory == "Location" or strCategory == "Market"):
 				#save Overview page
 				self.autoClickMoreToExtendLst(spiderForAngellist.STARTUP_PRODUCT_MORE_CSS)
 				self.autoClickMoreToExtendLst(spiderForAngellist.STARTUP_PRODUCT_FUNDINGSTAGE_CSS, '', True)
 				self.autoClickMoreToExtendLst(spiderForAngellist.STARTUP_PRODUCT_PREINVEST_CSS, '', True)
 				self.saveCurrentPage(spiderForAngellist.getOverviewLocalFilePath(strUrl, strDate, strCategory, strSubCategory))
-				#save Activiey#Press page
 				elementActivityTab = self.__driver.find_element_by_css_selector("a.tab.activity")
 				strActivityUrl = elementActivityTab.get_attribute("href")
+				# divFinance = self.__driver.find_element_by_css_selector("div.past_financing.section")
+				lstInverstorUrls = []
+
+				if(self.check_exists_by_css_selector("div.past_financing.section > div.startups-show-sections > div.group > div.startup_roles.startup_profile_group")):
+					divInverstors = self.__driver.find_element_by_css_selector("div.past_financing.section > div.startups-show-sections > div.group > div.startup_roles.startup_profile_group")
+					lstInverstors = divInverstors.find_elements_by_css_selector("div.startup_roles.startup_profile > div.g-lockup.top.medium > div.photo > a.profile-link")
+					for investor in lstInverstors:
+						lstInverstorUrls.append(investor.get_attribute("href"))
+
+				for investorUrl in lstInverstorUrls:
+					self.saveObjectToLocalFile(investorUrl, strDate, "People", "Investors")
+
+				#save Activiey#Press page
 				self.__driver.get(strActivityUrl)
 
 				wait = WebDriverWait(self.__driver, 10)
@@ -155,7 +305,9 @@ class spiderForAngellist:
 				self.__driver.get(strFollowersUrl)
 				self.autoClickMoreToExtendLst(spiderForAngellist.STARTUP_FOLLOWERS_MORE_CSS)
 				self.saveCurrentPage(spiderForAngellist.getFollowersLocalFilePath(strUrl, strDate, strCategory, strSubCategory))
-				
+				#save investors
+
+			
 				    
 			appendTextFile(strUrl, spiderForAngellist.strSavedUrlFilePath(strDate, strCategory, strSubCategory))
 			return True
@@ -165,6 +317,13 @@ class spiderForAngellist:
 			appendTextFile("[" + strUrl + "] " + repr(e), spiderForAngellist.strErrorListFilePath(strDate, strCategory, strSubCategory))
 			import pdb; pdb.set_trace()
 			return False				
+
+	def check_exists_by_css_selector(self, strCss):
+		try:
+			self.__driver.find_element_by_css_selector(strCss)
+		except NoSuchElementException:
+			return False
+		return True
 
 	def checkLoginStatus(self, strLoginCss):
 		lstElementLogin = self.__driver.find_elements_by_css_selector(strLoginCss)
@@ -308,6 +467,9 @@ class spiderForAngellist:
 		elif(strCategory == "Location"):
 			self.autoClickMoreToExtendLst("div.more.hidden", "div.item.column > div.g-lockup > div.photo")
 			return self.__driver.find_elements(By.CSS_SELECTOR, "div.item.column > div.g-lockup > div.photo")
+		elif(strCategory == "Market"):
+			self.autoClickMoreToExtendLst("div.more.hidden", "div.item.column > div.g-lockup > div.photo")
+			return self.__driver.find_elements(By.CSS_SELECTOR, "div.item.column > div.g-lockup > div.photo")
 		else:
 			return lstObjElement;
 
@@ -320,8 +482,12 @@ class spiderForAngellist:
 				strUrl = spiderForAngellist.PEOPLE_INVESTORS_URL
 
 		if(strCategory == "Location"):
-			if(strSubCategory == "Taiwan"):
-				strUrl = spiderForAngellist.LOCATION_TAIWAN_URL
+			strUrl = self.__dicLocationUrls[strSubCategory]
+			# if(strSubCategory == "Taiwan"):
+			# 	strUrl = spiderForAngellist.LOCATION_TAIWAN_URL
+
+		if(strCategory == "Market"):
+			strUrl = self.__dicMarketUrls[strSubCategory]
 
 		return strUrl
 
@@ -336,6 +502,10 @@ class spiderForAngellist:
 			# return "C:/Users/Administrator/Documents/SavedPage/"
 		elif(os.name == "posix"):
 			return "/Users/yuwei/Desktop/LocalPage/angellist/"
+
+	@staticmethod				
+	def strSavedDirectory(strDate, strCategory, strSubCategory):							#本次已抓取url列表
+		return spiderForAngellist.strLocalPagePath() + "/" + strDate + "/" + strCategory + "/" + strSubCategory
 
 	@staticmethod				
 	def strSavedUrlFilePath(strDate, strCategory, strSubCategory):							#本次已抓取url列表
@@ -376,20 +546,38 @@ class spiderForAngellist:
 		return spiderForAngellist.strLocalPagePath() + spiderForAngellist.LOCAL_PAGR_CATEGORY_MAPPING_FILENAME
 
 	@staticmethod
+	def getLocationMappingFilePath():
+		return spiderForAngellist.strLocalPagePath() + spiderForAngellist.LOCAL_PAGR_LOCATION_MAPPING_FILENAME
+
+	@staticmethod
+	def getMarketMappingFilePath():
+		return spiderForAngellist.strLocalPagePath() + spiderForAngellist.LOCAL_PAGR_MARKET_MAPPING_FILENAME
+
+	@staticmethod
 	def getPureUrl(strUrl): 										#從專案的url去掉"?ref_XXX"等字樣
 		strUrl = strUrl[0:strUrl.rfind('?')]
 		return strUrl
 
 	@staticmethod
-	def getCategoryMapping(driver = None):
+	def getCategoryMapping(spider = None, driver = None):
 		strFilePath = spiderForAngellist.getCategoryMappingFilePath()
 		if(os.path.isfile(strFilePath)):
 			dicMapping = loadObjFromJsonFile(strFilePath)
 			return dicMapping
 		else:
-			dicMapping = { "People" : ["SyndicateLeads", "Investors"],
-							"Location" : ["Taiwan"] } # TODO: add real dicMapping
+			if(driver == None):
+				chromedriver = "C:/Python27/Scripts/chromedriver.exe"
+				os.environ["webdriver.chrome.driver"] = chromedriver
+				driver = webdriver.Chrome(chromedriver)
+				driver.maximize_window()
+
+			if(spider == None):
+				spider = spiderForAngellist()
+
+			dicMapping = spider.loadCategoryFromPage(driver);
+
 			return dicMapping
+
 
 
 	@staticmethod
@@ -408,9 +596,10 @@ class spiderForAngellist:
 
 		driver.maximize_window()
 		if len(lstStrSubCategory) == 0:
-			dicMapping = spiderForAngellist.getCategoryMapping()
+			dicMapping = spiderForAngellist.getCategoryMapping(spider, driver)
+			# import pdb; pdb.set_trace()
 			for strSubCategoryInMapping in dicMapping[strCategory]:
-				spider.saveProjectsToLocalFile(driver, strDate, strCategory, strSubCategoryInMapping, isClearSavedUrls)
+				spider.saveObjectsToLocalFile(driver, strDate, strCategory, strSubCategoryInMapping, isClearSavedUrls)
 		else:
 			for strSubCategory in lstStrSubCategory:
 				spider.saveObjectsToLocalFile(driver, strDate, strCategory, strSubCategory, isClearSavedUrls)
@@ -419,7 +608,7 @@ class spiderForAngellist:
 def main():
 	#spiderForAngellist.saveAllObjectsOfCategory("2016-02-25", "Location", ["Taiwan"])
 	#spiderForAngellist.saveAllObjectsOfCategory("2016-02-25", "People", ["SyndicateLeads", "Investors"])
-	spiderForAngellist.saveAllObjectsOfCategory("2016-02-25", "People", ["Investors"])
+	spiderForAngellist.saveAllObjectsOfCategory("2016-03-12", "People", ["Investors"])
 	
 
 if __name__ == '__main__':
