@@ -9,6 +9,7 @@ import json
 import platform
 import sys
 import locale
+import linecache
 # import geonamescache
 # from geonamescache.mappers import country
 
@@ -90,7 +91,7 @@ class parserForAngellist:
 
 			strSyndicateJsonFilePath = parserForAngellist.getSyndicateJsonFilePath(self.__strDate, self.__strCategory, self.__strSubCategory)
 			saveObjToJson(self.__lstSyndicateResult, strSyndicateJsonFilePath)
-		elif(strCategory == "Location"):
+		elif(strCategory == "Location" or strCategory == "Market"):
 			strStartupJsonFilePath = parserForAngellist.getStartupJsonFilePath(self.__strDate, self.__strCategory, self.__strSubCategory)
 			saveObjToJson(self.__lstStartupResult, strStartupJsonFilePath)
 
@@ -108,11 +109,12 @@ class parserForAngellist:
 
 			if(strCategory == "People"): 
 				self.parsePeopleToJson(strUrl)
-			elif(strCategory == "Location"):
+			elif(strCategory == "Location" or strCategory == "Market"):
 				self.parseStartupToJson(strUrl)
 			#appendTextFile(strUrl, parserForAngellist.strParsedUrlFilePath(strDate, strCategory, strSubCategory))
 			return True
 		except Exception, e:
+			self.PrintException()
 			print("[parserForAngellist] Failed! ErrorMessage:" + str(e))
 			appendTextFile("[" + strUrl + "] " + repr(e), parserForAngellist.strErrorListFilePath(self.__strDate, self.__strCategory, self.__strSubCategory))
 			import pdb; pdb.set_trace()
@@ -164,7 +166,7 @@ class parserForAngellist:
 
 			dicInvestorResult['strLocation'] = strLocation
 			dicLocation = self.parseLocation(strLocation)
-
+			print("location parse complete")
 			# strGeonameId = geonames.search(q=strLocation)[0]['geonameId']
 			# dicGeoname = geonames.get(strGeonameId)
 			# bbox = dicGeoname['bbox']
@@ -272,7 +274,7 @@ class parserForAngellist:
 			root = Selector(text=strPageSource)
 			dicSyndicateResult['strUrl'] = strSyndicateUrl
 			dicSyndicateResult['strCrawlTime'] = self.__strDate
-			dicSyndicateResult['strName'] = root.css('div.gridspan.antialiased > h1::text').extract_first().strip()
+			dicSyndicateResult['strName'] = root.css('div.gridspan.antialiased > h1::text').extract_first()
 			dicSyndicateResult['strManager'] = root.css('div.managers > div.fixed_width.u-inlineBlock > div > a.u-uncoloredLink::text').extract()
 
 			intTypicalInvestment = 0
@@ -557,13 +559,13 @@ class parserForAngellist:
 			dicGeonameCache = {} 
 			dicSearchResult = geonames.search(q=strLocation, maxRows=10, featureClass='P') #countryBias='US'
 			lstStrLocation = strLocation.split()
-			while len(dicSearchResult) == 0 and len(lstStrLocation) > 1:
+			while (dicSearchResult == None or len(dicSearchResult) == 0) and len(lstStrLocation) > 1:
 				del lstStrLocation[-1]
 				strSubLocation = ' '.join(lstStrLocation)
 				print('[parserForAngellist] Parsing location : ' + strSubLocation)
 				dicSearchResult = geonames.search(q=strSubLocation, maxRows=10, featureClass='P') #countryBias='US'
-				
-			if(len(dicSearchResult) == 0):
+
+			if(dicSearchResult == None or len(dicSearchResult) == 0):
 				dicNotFoundGeoname = {}
 				dicNotFoundGeoname['strCity'] = ''
 				dicNotFoundGeoname['strCountry'] = ''
@@ -595,17 +597,26 @@ class parserForAngellist:
 
 		return self.__geonamesCache[strLocation]
 
+	def PrintException(self):
+		exc_type, exc_obj, tb = sys.exc_info()
+		f = tb.tb_frame
+		lineno = tb.tb_lineno
+		filename = f.f_code.co_filename
+		linecache.checkcache(filename)
+		line = linecache.getline(filename, lineno, f.f_globals)
+		print 'EXCEPTION IN ({}, LINE {} "{}"): {}'.format(filename, lineno, line.strip(), exc_obj)
+
 	@staticmethod
 	def strParsedResultPath():
 		if(os.name == "nt"):
-			return "C:/Users/Nathan/Documents/ParsedResult/"
-			# return "C:/Users/Administrator/Documents/ParsedResult/"
+			# return "C:/Users/Nathan/Documents/ParsedResult/"
+			return "C:/Users/Administrator/Documents/ParsedResult/"
 		elif(os.name == "posix"):
 			return "/Users/yuwei/Desktop/ParseResult/angellist/"
 
 	@staticmethod				
 	def strSavedGeonameFilePath(strDate, strCategory, strSubCategory):							#geonames cache
-		return parserForAngellist.strParsedResultPath() + "/" + strDate + "/" + strCategory + "/" + strSubCategory + "/" + parserForAngellist.PARSE_SAVED_GEONAME_FILENAME + parserForAngellist.LOCAL_JSON_EXTENSION
+		return parserForAngellist.strParsedResultPath() + "/" + parserForAngellist.PARSE_SAVED_GEONAME_FILENAME + parserForAngellist.LOCAL_JSON_EXTENSION
 
 	@staticmethod				
 	def strParsedUrlFilePath(strDate, strCategory, strSubCategory):							#本次已抓取url列表
@@ -653,13 +664,14 @@ class parserForAngellist:
 
 	@staticmethod
 	def parseAllObjectsOfCategory(strDate, strCategory, lstStrSubCategory = []):
-		parser = parserForAngellist()
 		if len(lstStrSubCategory) == 0:
 			dicMapping = spiderForAngellist.getCategoryMapping()
 			for strSubCategoryInMapping in dicMapping[strCategory]:
+				parser = parserForAngellist()
 				parser.parseObjectsToLocalFile(strDate, strCategory, strSubCategoryInMapping)
 		else:
 			for strSubCategory in lstStrSubCategory:
+				parser = parserForAngellist()
 				parser.parseObjectsToLocalFile(strDate, strCategory, strSubCategory)
 
 def main():

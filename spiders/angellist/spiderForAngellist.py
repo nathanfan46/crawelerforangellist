@@ -445,13 +445,17 @@ class spiderForAngellist:
 	def scrollForCreatingAllItem(self, strItemCss): #適用於網頁往下滑即可產生列表物件的頁面，輸入生成物件的css selector字串
 		fCurTime = 0
 		intLastItemCount = 0
+		# sometimes angellist will have bug for scroll down ajax
+		intScrollCount = 0
+		intScrollLimit = 10 
 		while True:
 			intCurItemCount = len(self.__driver.find_elements_by_css_selector(strItemCss))
-			if fCurTime > self.INT_SCROLL_TIMEOUT:
+			if fCurTime > self.INT_SCROLL_TIMEOUT or intScrollCount > intScrollLimit:
 				break
 			elif intCurItemCount > intLastItemCount:
 				intLastItemCount = intCurItemCount
 				self.__driver.execute_script("window.scrollTo(0, document.body.scrollHeight);")
+				intScrollCount += 1
 				fCurTime = 0
 			else:
 				fCurTime = fCurTime + 0.5
