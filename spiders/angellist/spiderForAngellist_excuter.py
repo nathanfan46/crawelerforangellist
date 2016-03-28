@@ -11,5 +11,6 @@ from spiderForAngellist import *
 if __name__ == '__main__':
 	config = loadObjFromJsonFile(os.path.dirname(os.path.abspath(__file__)) + "/spiderForAngellist_config.json")
 	strCategory = config["strCategory"]
-	spiderForAngellist.saveAllObjectsOfCategory("2016-03-13", strCategory)
+	lstStrSubCategory = config["lstStrSubCategory1"]
+	spiderForAngellist.saveAllObjectsOfCategory("2016-03-27", strCategory, lstStrSubCategory)
 	mailHelper.send("All Objects Of [" + strCategory + "] Are Saved!", config["strMachine"], "me", "", config["lstStrMail"])

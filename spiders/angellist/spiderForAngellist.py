@@ -11,6 +11,8 @@ from selenium.webdriver.common.keys import Keys
 from selenium.webdriver.common.by import By
 from selenium.webdriver.common.action_chains import ActionChains
 from selenium.webdriver.common.desired_capabilities import DesiredCapabilities
+from selenium.webdriver.chrome.options import Options
+from random import randint
 #from time import sleep
 import time
 import datetime
@@ -19,6 +21,8 @@ import io
 import json
 import platform
 import sys
+import zipfile
+import string
 
 sys.path.append(os.path.join(os.path.dirname(__file__), '..', 'utility'))
 
@@ -56,7 +60,10 @@ class spiderForAngellist:
 	LOCAL_PAGR_CATEGORY_MAPPING_FILENAME = "categroyMapping.json"
 	LOCAL_PAGR_LOCATION_MAPPING_FILENAME = "locationMapping.json"
 	LOCAL_PAGR_MARKET_MAPPING_FILENAME = "marketMapping.json"
+	LOCAL_PAGE_CHROME_EXTEND_FILENAME = "chromeextend.zip"
 	LOCAL_PAGE_PROJECT_LIST_FILENAME = "ProjectListPage"
+	LOCAL_PAGE_PEOPLE_SAVED_URLS_FILENAME = "PeopleSavedUrls.json" 
+	LOCAL_PAGE_STARTUP_SAVED_URLS_FILENAME = "StartupsavedUrls.json"
 	LOCAL_PAGE_SAVED_URLS_FILENAME = "savedUrls" 		#每次存完的網站會把url存下
 	LOCAL_PAGE_ERROR_URLS_FILENAME = "errorList" 		#抓取發生錯誤的網頁
 	LOCAL_PAGE_IGNORED_URL_FILENAME = "ignoredUrls" 	#若是已經結束募資的url，之後爬此網站會忽略，在saveProjectToLocalFile會建立其內容
@@ -69,8 +76,13 @@ class spiderForAngellist:
 	def __init__(self):
 		self.__driver = None
 		self.__lstSavedUrls = []
+		self.__lstSavedPeopleUrls = []
+		self.__lstSavedStartupUrls = []
 		self.__dicMarketUrls = {}
 		self.__dicLocationUrls = {}
+		self.__startTime = None
+		self.__workPeriod = None
+		self.__sleepPeriod = None
 		#self.__lstIgnoredUrl = []
 
 	def loadCategoryFromPage(self, driver):
@@ -216,6 +228,22 @@ class spiderForAngellist:
 			os.remove(strSavedFileUrl)			
 
 		self.__lstSavedUrls = loadStrListInfo(strSavedFileUrl)
+
+		strSavedPeopleFileUrl = spiderForAngellist.strSavedPeopleUrlFilePath()
+
+		if(os.path.isfile(strSavedPeopleFileUrl)):
+			self.__lstSavedPeopleUrls = loadObjFromJsonFile(strSavedPeopleFileUrl)
+
+			self.__lstSavedPeopleUrls = list(set(self.__lstSavedPeopleUrls))
+
+		strSavedStartupFileUrl = spiderForAngellist.strSavedStartupUrlFilePath()
+
+		if(os.path.isfile(strSavedStartupFileUrl)):
+			self.__lstSavedStartupUrls = loadObjFromJsonFile(strSavedStartupFileUrl)
+
+			self.__lstSavedStartupUrls = list(set(self.__lstSavedStartupUrls))
+
+
 		#self.__lstIgnoredUrl = loadStrListInfo(strIgnoredFileUrl
 
 		# if self.setFilter(strCategory, strSubCategory) == False:
@@ -232,11 +260,33 @@ class spiderForAngellist:
 
 		for i in range(0, len(lstStrUrl), 1):
 			#if(lstStrUrl[i] not in self.__lstSavedUrls and lstStrUrl[i] not in self.__lstIgnoredUrl):
-			if(lstStrUrl[i] not in self.__lstSavedUrls):
+			if(self.__startTime == None):
+				self.__startTime = time.time()
+				self.__workPeriod = 4 * 60 * 60 # randint(30, 60) * 60 #seconds
+				self.__sleepPeriod = randint(30, 60)#12 * 60 * 60 #randint(30, 60) * 60 
+			elif (time.time() - self.__startTime) > self.__workPeriod:
+				print("[spiderForAngellist] Take a nap from: " + str(time.time()))
+				time.sleep(self.__sleepPeriod)
+				print("[spiderForAngellist] Continue to work from: " + str(time.time()))
+				# import pdb; pdb.set_trace()
+				self.__startTime = time.time()
+				self.__workPeriod = randint(30, 60) * 60 #seconds
+				self.__sleepPeriod = randint(30, 60) * 60 
+
+			if(strCategory == "People" and lstStrUrl[i] in self.__lstSavedPeopleUrls):
+				print("[spiderForAngellist] " + lstStrUrl[i] + " this person has been saved before")
+			elif(strCategory == "Location" or strCategory == "Market") and lstStrUrl[i] in self.__lstSavedStartupUrls:
+				print("[spiderForAngellist] " + lstStrUrl[i] + " this startup has been saved before")
+			elif(lstStrUrl[i] not in self.__lstSavedUrls):
 				self.saveObjectToLocalFile(lstStrUrl[i], strDate, strCategory, strSubCategory)
 				print("[spiderForAngellist] " + str(i + 1).encode("utf8") + "/" + str(len(lstStrUrl)).encode("utf8"))
 			else:
-				print("[spiderForAngellist] " + lstStrUrl[i] + " has been saved")		
+				print("[spiderForAngellist] " + lstStrUrl[i] + " has been saved")
+
+		saveObjToJson(self.__lstSavedPeopleUrls, strSavedPeopleFileUrl)	
+
+		saveObjToJson(self.__lstSavedStartupUrls, strSavedStartupFileUrl)
+
 
 	def saveObjectToLocalFile(self, strUrl, strDate, strCategory, strSubCategory, driver = None):
 		if(self.__driver == None):
@@ -260,6 +310,8 @@ class spiderForAngellist:
 					self.autoClickMoreToExtendLst(spiderForAngellist.SYNDICATE_INVESTMENTS_MORE_CSS)
 					self.saveCurrentPage(spiderForAngellist.getSyndicateLocalFilePath(strUrl, strDate, strCategory, strSubCategory))
 
+				self.__lstSavedPeopleUrls.append(strUrl)
+
 			if(strCategory == "Location" or strCategory == "Market"):
 				#save Overview page
 				self.autoClickMoreToExtendLst(spiderForAngellist.STARTUP_PRODUCT_MORE_CSS)
@@ -278,7 +330,8 @@ class spiderForAngellist:
 						lstInverstorUrls.append(investor.get_attribute("href"))
 
 				for investorUrl in lstInverstorUrls:
-					self.saveObjectToLocalFile(investorUrl, strDate, "People", "Investors")
+					if(investorUrl not in self.__lstSavedPeopleUrls):
+						self.saveObjectToLocalFile(investorUrl, strDate, "People", "Investors")
 
 				#save Activiey#Press page
 				self.__driver.get(strActivityUrl)
@@ -306,7 +359,7 @@ class spiderForAngellist:
 				self.autoClickMoreToExtendLst(spiderForAngellist.STARTUP_FOLLOWERS_MORE_CSS)
 				self.saveCurrentPage(spiderForAngellist.getFollowersLocalFilePath(strUrl, strDate, strCategory, strSubCategory))
 				#save investors
-
+				self.__lstSavedStartupUrls.append(strUrl)
 			
 				    
 			appendTextFile(strUrl, spiderForAngellist.strSavedUrlFilePath(strDate, strCategory, strSubCategory))
@@ -315,7 +368,7 @@ class spiderForAngellist:
 		except Exception, e:
 			print("[spiderForAngellist] Failed! ErrorMessage:" + str(e))
 			appendTextFile("[" + strUrl + "] " + repr(e), spiderForAngellist.strErrorListFilePath(strDate, strCategory, strSubCategory))
-			import pdb; pdb.set_trace()
+			# import pdb; pdb.set_trace()
 			return False				
 
 	def check_exists_by_css_selector(self, strCss):
@@ -502,8 +555,8 @@ class spiderForAngellist:
 	@staticmethod
 	def strLocalPagePath():
 		if(os.name == "nt"):
-			return "C:/Users/Nathan/Documents/SavedPage/"
-			# return "C:/Users/Administrator/Documents/SavedPage/"
+			# return "C:/Users/Nathan/Documents/SavedPage/"
+			return "C:/Users/Administrator/Documents/SavedPage/"
 		elif(os.name == "posix"):
 			return "/Users/yuwei/Desktop/LocalPage/angellist/"
 
@@ -514,6 +567,16 @@ class spiderForAngellist:
 	@staticmethod				
 	def strSavedUrlFilePath(strDate, strCategory, strSubCategory):							#本次已抓取url列表
 		return spiderForAngellist.strLocalPagePath() + "/" + strDate + "/" + strCategory + "/" + strSubCategory + "/" + spiderForAngellist.LOCAL_PAGE_SAVED_URLS_FILENAME + spiderForAngellist.LOCAL_PAGE_INFO_EXTENSION
+
+
+	@staticmethod				
+	def strSavedPeopleUrlFilePath():							#本次已抓取url列表
+		return spiderForAngellist.strLocalPagePath() + "/" + spiderForAngellist.LOCAL_PAGE_PEOPLE_SAVED_URLS_FILENAME
+
+	@staticmethod				
+	def strSavedStartupUrlFilePath():							#本次已抓取url列表
+		return spiderForAngellist.strLocalPagePath() + "/" + spiderForAngellist.LOCAL_PAGE_STARTUP_SAVED_URLS_FILENAME
+		
 
 	@staticmethod				
 	def strErrorListFilePath(strDate, strCategory, strSubCategory):							#error列表
@@ -558,6 +621,10 @@ class spiderForAngellist:
 		return spiderForAngellist.strLocalPagePath() + spiderForAngellist.LOCAL_PAGR_MARKET_MAPPING_FILENAME
 
 	@staticmethod
+	def getChromeExtendFilePath():
+		return spiderForAngellist.strLocalPagePath() + spiderForAngellist.LOCAL_PAGE_CHROME_EXTEND_FILENAME
+
+	@staticmethod
 	def getPureUrl(strUrl): 										#從專案的url去掉"?ref_XXX"等字樣
 		strUrl = strUrl[0:strUrl.rfind('?')]
 		return strUrl
@@ -583,15 +650,106 @@ class spiderForAngellist:
 			return dicMapping
 
 
+	@staticmethod
+	def create_proxyauth_extension(proxy_host, proxy_port, proxy_username, proxy_password, scheme='http', plugin_path=None):
+
+		if plugin_path is None:
+			plugin_path = spiderForAngellist.getChromeExtendFilePath()
+
+		background_js = string.Template(
+		"""
+			var config = {
+				mode: "fixed_servers",
+				rules: {
+					singleProxy: {
+						scheme: "${scheme}",
+						host: "${host}",
+						port: parseInt(${port})
+					},
+					bypassList: ["foobar.com"]
+				}
+			};
+
+			chrome.proxy.settings.set({value: config, scope: "regular"}, function() {});
+
+			function callbackFn(details) {
+				return {
+					authCredentials: {
+						username: "${username}",
+						password: "${password}"
+					}
+				};
+			}
+
+			chrome.webRequest.onAuthRequired.addListener(
+				callbackFn,
+				{urls: ["<all_urls>"]},
+				['blocking']
+			);
+		"""
+		).substitute(
+		    host=proxy_host,
+		    port=proxy_port,
+		    username=proxy_username,
+		    password=proxy_password,
+		    scheme=scheme,
+		)
+
+		manifest_json = """
+		{
+		    "version": "1.0.0",
+		    "manifest_version": 2,
+		    "name": "Chrome Proxy",
+		    "permissions": [
+		        "proxy",
+		        "tabs",
+		        "unlimitedStorage",
+		        "storage",
+		        "<all_urls>",
+		        "webRequest",
+		        "webRequestBlocking"
+		    ],
+		    "background": {
+		        "scripts": ["background.js"]
+		    },
+		    "minimum_chrome_version":"22.0.0"
+		}
+		"""
+
+		with zipfile.ZipFile(plugin_path, 'w') as zp:
+			zp.writestr("manifest.json", manifest_json)
+			zp.writestr("background.js", background_js)
+
+		return plugin_path
+
 
 	@staticmethod
 	def saveAllObjectsOfCategory(strDate, strCategory, lstStrSubCategory = [], isClearSavedUrls = False):
 		spider = spiderForAngellist()
 		# driver = webdriver.Firefox()
+
+		# For using tor
+		# chrome_options = webdriver.ChromeOptions()
+		# chrome_options.add_argument('--proxy-server=http://127.0.0.1:8118')
+
+		# For using authenticated proxy
+		# proxyauth_plugin_path = spiderForAngellist.create_proxyauth_extension(
+		# 	proxy_host="us-dc.proxymesh.com",
+		# 	proxy_port=31280,
+		# 	proxy_username="",
+		# 	proxy_password=""
+		# )
+
+		# co = Options()
+		# co.add_argument("--start-maximized")
+		# co.add_extension(proxyauth_plugin_path)
+			
 		
 		chromedriver = "C:/Python27/Scripts/chromedriver.exe"
 		os.environ["webdriver.chrome.driver"] = chromedriver
 		driver = webdriver.Chrome(chromedriver)
+		# driver = webdriver.Chrome(executable_path=chromedriver,chrome_options=chrome_options)
+		# driver = webdriver.Chrome(chrome_options=co)
 
 		# firefox_capabilities = DesiredCapabilities.FIREFOX
 		# firefox_capabilities['marionette'] = True
@@ -612,7 +770,7 @@ class spiderForAngellist:
 def main():
 	#spiderForAngellist.saveAllObjectsOfCategory("2016-02-25", "Location", ["Taiwan"])
 	#spiderForAngellist.saveAllObjectsOfCategory("2016-02-25", "People", ["SyndicateLeads", "Investors"])
-	spiderForAngellist.saveAllObjectsOfCategory("2016-03-12", "People", ["Investors"])
+	spiderForAngellist.saveAllObjectsOfCategory("2016-03-15", "People", ["Investors"])
 	
 
 if __name__ == '__main__':
