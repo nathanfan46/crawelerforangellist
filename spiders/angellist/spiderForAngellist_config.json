@@ -23,6 +23,8 @@
 	"lstStrSubCategory19": ["Beijing", "Shanghai", "Shenzhen", "Jakarta", "Bandung", "Surabaya", "Yogyakarta", "Dubai", "Abu Dhabi", "Tokyo"],
 	"lstStrSubCategory20": ["Osaka", "Kuala Lumpur", "Petaling Jaya", "Manila", "Cebu", "Alicante", "Bangkok", "Chiang Mai", "Lahore", "Karachi"],
 	"lstStrSubCategory21": ["Seoul", "Iran", "Jordan", "Saudi Arabia", "Kazakhstan", "Lebanon", "Azerbaijan", "Bangladesh", "Armenia", "Sri Lanka"],
+	"lstStrSubCategory22": ["Toronto", "Ottawa", "Waterloo", "Kitchener", "London, Canada", "Lucknow", "Hamilton", "Kingston, Canada", "Milton, Canada", "Thunder Bay"],
+	"lstStrSubCategory23": ["Vancouver", "Victoria", "Kelowna", "Montreal", "Quebec, Canada", "Waterloo, Canada", "Calgary", "Edmonton", "Nova Scotia", "Manitoba","New Brunswick","Saskatchewan"],
 	"lstStrMail":[
 		"sengallery@gmail.com"
 	]
