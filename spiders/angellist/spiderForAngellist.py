@@ -270,8 +270,8 @@ class spiderForAngellist:
 				print("[spiderForAngellist] Continue to work from: " + str(time.time()))
 				# import pdb; pdb.set_trace()
 				self.__startTime = time.time()
-				self.__workPeriod = randint(30, 60) * 60 #seconds
-				self.__sleepPeriod = randint(30, 60) * 60 
+				self.__workPeriod = 4 * 60 * 60 #randint(30, 60) * 60 #seconds
+				self.__sleepPeriod = randint(30, 60)#randint(30, 60) * 60 
 
 			if(strCategory == "People" and lstStrUrl[i] in self.__lstSavedPeopleUrls):
 				print("[spiderForAngellist] " + lstStrUrl[i] + " this person has been saved before")
